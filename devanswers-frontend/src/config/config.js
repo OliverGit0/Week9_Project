@@ -37,6 +37,11 @@ export const TAG_API = {
   GET_QUESTIONS_BY_TAG: (tagId) => `/tags/${tagId}/questions`,
 };
 
+// AI API Endpoints
+export const AI_API = {
+  IMPROVE_QUESTION: "/ai/improve-question",
+};
+
 // User API Endpoints
 export const USER_API = {
   STATS: (userId) => `/auth/stats/${userId}`,

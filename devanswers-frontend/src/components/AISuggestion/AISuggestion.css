@@ -1,0 +1,35 @@
+.ai-suggestion {
+  border: 1px solid rgba(118, 75, 162, 0.35);
+  border-left: 4px solid #764ba2;
+  border-radius: 8px;
+  padding: 0.75rem 0.875rem;
+  background-color: rgba(102, 126, 234, 0.07);
+}
+
+.ai-suggestion-header {
+  display: flex;
+  align-items: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #764ba2;
+  margin-bottom: 0.4rem;
+}
+
+[data-theme="dark"] .ai-suggestion-header {
+  color: #a78bdb;
+}
+
+.ai-suggestion-text {
+  color: var(--text-color);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.ai-suggestion-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
