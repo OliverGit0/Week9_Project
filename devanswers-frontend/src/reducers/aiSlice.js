@@ -1,16 +1,23 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
-import { improveQuestion } from "../services/aiService.js";
+import { improveQuestion, summarizeAnswers } from "../services/aiService.js";
 
-// Each suggestion is a string, or null once it has been accepted/rejected
-// (or before any have been requested).
+const initialSuggestions = {
+  title: null,
+  description: null,
+  tags: null,
+};
+
 const initialState = {
-  suggestions: {
-    title: null,
-    description: null,
-    tags: null,
-  },
+  // Question Quality Improver: each suggestion is a string, or null once it
+  // has been accepted/rejected (or before any have been requested).
+  suggestions: initialSuggestions,
   loading: false,
   error: null,
+
+  // Answer Summarizer: { questionId, text } while a summary is shown, else null.
+  summary: null,
+  summaryLoading: false,
+  summaryError: null,
 };
 
 export const fetchQuestionImprovements = createAsyncThunk(
@@ -29,6 +36,22 @@ export const fetchQuestionImprovements = createAsyncThunk(
   },
 );
 
+export const fetchAnswerSummary = createAsyncThunk(
+  "ai/fetchAnswerSummary",
+  async (questionId, { getState, rejectWithValue }) => {
+    try {
+      const { token } = getState().user.userInfo || {};
+      return await summarizeAnswers(questionId, token);
+    } catch (error) {
+      return rejectWithValue(
+        error.response?.data?.message ||
+          error.message ||
+          "Failed to summarize answers",
+      );
+    }
+  },
+);
+
 const aiSlice = createSlice({
   name: "ai",
   initialState,
@@ -39,7 +62,21 @@ const aiSlice = createSlice({
         state.suggestions[action.payload] = null;
       }
     },
-    clearSuggestions: () => initialState,
+    clearSuggestions: (state) => {
+      state.suggestions = initialSuggestions;
+      state.loading = false;
+      state.error = null;
+    },
+    // Hides the summary banner; the summarize button becomes available again.
+    dismissSummary: (state) => {
+      state.summary = null;
+      state.summaryError = null;
+    },
+    clearSummary: (state) => {
+      state.summary = null;
+      state.summaryLoading = false;
+      state.summaryError = null;
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -59,10 +96,30 @@ const aiSlice = createSlice({
       .addCase(fetchQuestionImprovements.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload || action.error.message;
+      })
+      .addCase(fetchAnswerSummary.pending, (state) => {
+        state.summaryLoading = true;
+        state.summaryError = null;
+      })
+      .addCase(fetchAnswerSummary.fulfilled, (state, action) => {
+        state.summaryLoading = false;
+        state.summary = {
+          questionId: action.meta.arg,
+          text: action.payload?.summary || "",
+        };
+      })
+      .addCase(fetchAnswerSummary.rejected, (state, action) => {
+        state.summaryLoading = false;
+        state.summaryError = action.payload || action.error.message;
       });
   },
 });
 
-export const { dismissSuggestion, clearSuggestions } = aiSlice.actions;
+export const {
+  dismissSuggestion,
+  clearSuggestions,
+  dismissSummary,
+  clearSummary,
+} = aiSlice.actions;
 
 export default aiSlice.reducer;

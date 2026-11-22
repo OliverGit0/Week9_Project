@@ -2,14 +2,23 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vite
 import request from 'supertest';
 import '../setup.js';
 import app from '../../src/app.js';
+import {
+  mockGemini,
+  geminiJsonReply,
+  geminiTextReply,
+  geminiErrorReply,
+  sentApiKey,
+  sentBody,
+  sentPromptText,
+} from '../helpers/geminiMock.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
 let jwtToken;
-const realFetch = globalThis.fetch;
-const ORIGINAL_KEYS = {
+const ORIGINAL_ENV = {
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   Gemini_API_KEY: process.env.Gemini_API_KEY,
+  GEMINI_RETRY_DELAY_MS: process.env.GEMINI_RETRY_DELAY_MS,
 };
 
 beforeAll(async () => {
@@ -18,25 +27,6 @@ beforeAll(async () => {
   await request(app).post('/api/auth/register').send({ name: 'AI User', email, password });
   const loginRes = await request(app).post('/api/auth/login').send({ email, password });
   jwtToken = loginRes.body.data.token;
-});
-
-// Only intercept calls to Gemini; supertest's own requests must still go through.
-const mockGemini = (impl) => {
-  const geminiMock = vi.fn(impl);
-  vi.stubGlobal('fetch', (url, opts) =>
-    String(url).includes('generativelanguage.googleapis.com')
-      ? geminiMock(url, opts)
-      : realFetch(url, opts),
-  );
-  return geminiMock;
-};
-
-const geminiReply = (obj) => ({
-  ok: true,
-  status: 200,
-  json: async () => ({
-    candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }] } }],
-  }),
 });
 
 const draft = {
@@ -53,7 +43,7 @@ describe('POST /api/ai/improve-question', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    for (const [k, v] of Object.entries(ORIGINAL_KEYS)) {
+    for (const [k, v] of Object.entries(ORIGINAL_ENV)) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
     }
@@ -77,7 +67,7 @@ describe('POST /api/ai/improve-question', () => {
 
   it('sends all three fields in a single Gemini call and returns improved versions', async () => {
     const geminiMock = mockGemini(async () =>
-      geminiReply({
+      geminiJsonReply({
         title: 'Why does useEffect run twice in React 18 development mode?',
         description: 'My useEffect callback runs twice on mount.',
         tags: ['React', 'react hooks', 'react', 'javascript', 'strict-mode', 'dev', 'extra'],
@@ -99,9 +89,10 @@ describe('POST /api/ai/improve-question', () => {
     });
 
     expect(geminiMock).toHaveBeenCalledTimes(1);
-    const [, opts] = geminiMock.mock.calls[0];
-    expect(opts.headers['x-goog-api-key']).toBe('test-key');
-    const prompt = JSON.parse(opts.body).contents[0].parts[0].text;
+    const call = geminiMock.mock.calls[0];
+    expect(sentApiKey(call)).toBe('test-key');
+    expect(sentBody(call).generationConfig.responseMimeType).toBe('application/json');
+    const prompt = sentPromptText(call);
     expect(prompt).toContain(draft.title);
     expect(prompt).toContain(draft.description);
     expect(prompt).toContain(draft.tags);
@@ -111,7 +102,7 @@ describe('POST /api/ai/improve-question', () => {
     delete process.env.GEMINI_API_KEY;
     process.env.Gemini_API_KEY = 'alt-key';
     const geminiMock = mockGemini(async () =>
-      geminiReply({ title: 't', description: 'd', tags: [] }),
+      geminiJsonReply({ title: 't', description: 'd', tags: [] }),
     );
 
     const res = await request(app)
@@ -120,7 +111,7 @@ describe('POST /api/ai/improve-question', () => {
       .send(draft);
 
     expect(res.status).toBe(200);
-    expect(geminiMock.mock.calls[0][1].headers['x-goog-api-key']).toBe('alt-key');
+    expect(sentApiKey(geminiMock.mock.calls[0])).toBe('alt-key');
   });
 
   it('returns 503 when no API key is configured', async () => {
@@ -136,7 +127,7 @@ describe('POST /api/ai/improve-question', () => {
   });
 
   it('returns 502 when Gemini responds with a non-retryable error', async () => {
-    const geminiMock = mockGemini(async () => ({ ok: false, status: 400, json: async () => ({}) }));
+    const geminiMock = mockGemini(async () => geminiErrorReply(400));
 
     const res = await request(app)
       .post('/api/ai/improve-question')
@@ -150,8 +141,8 @@ describe('POST /api/ai/improve-question', () => {
 
   it('retries when Gemini is temporarily overloaded, then succeeds', async () => {
     const geminiMock = mockGemini()
-      .mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({}) })
-      .mockResolvedValueOnce(geminiReply({ title: 't', description: 'd', tags: ['x'] }));
+      .mockResolvedValueOnce(geminiErrorReply(503))
+      .mockResolvedValueOnce(geminiJsonReply({ title: 't', description: 'd', tags: ['x'] }));
 
     const res = await request(app)
       .post('/api/ai/improve-question')
@@ -163,7 +154,7 @@ describe('POST /api/ai/improve-question', () => {
   });
 
   it('returns 503 "busy" when Gemini stays overloaded after retries', async () => {
-    const geminiMock = mockGemini(async () => ({ ok: false, status: 503, json: async () => ({}) }));
+    const geminiMock = mockGemini(async () => geminiErrorReply(503));
 
     const res = await request(app)
       .post('/api/ai/improve-question')
@@ -176,11 +167,7 @@ describe('POST /api/ai/improve-question', () => {
   });
 
   it('returns 502 when Gemini returns unparseable output', async () => {
-    mockGemini(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ candidates: [{ content: { parts: [{ text: 'not json' }] } }] }),
-    }));
+    mockGemini(async () => geminiTextReply('not json'));
 
     const res = await request(app)
       .post('/api/ai/improve-question')

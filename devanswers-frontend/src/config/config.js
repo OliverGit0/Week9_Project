@@ -40,6 +40,7 @@ export const TAG_API = {
 // AI API Endpoints
 export const AI_API = {
   IMPROVE_QUESTION: "/ai/improve-question",
+  SUMMARIZE_ANSWERS: (questionId) => `/ai/summarize-answers/${questionId}`,
 };
 
 // User API Endpoints

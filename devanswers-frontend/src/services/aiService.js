@@ -11,3 +11,14 @@ export const improveQuestion = async ({ title, description, tags }, token) => {
   );
   return res.data.data;
 };
+
+// Asks the backend to summarise all answers to a question in one Gemini call.
+// The backend loads the question and answers itself; resolves to { summary }.
+export const summarizeAnswers = async (questionId, token) => {
+  const res = await axiosInstance.post(
+    AI_API.SUMMARIZE_ANSWERS(questionId),
+    {},
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  return res.data.data;
+};
