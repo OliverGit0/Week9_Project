@@ -4,8 +4,9 @@ import Question from "../models/Question.js";
 import Answer from "../models/Answer.js";
 import { createAppError } from "../utils/createAppError.js";
 
-// Model name as used throughout the official Gemini API docs (verified via Context7).
-const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
+// Model name as used throughout the official Gemini API docs (verified via Context7). Updated to 3.5 which appeared
+// to be the latest stable version at the time of writing.
+const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
 const REQUEST_TIMEOUT_MS = 30000;
 const MAX_ATTEMPTS = 3; // initial call + 2 retries
 const MAX_TAGS = 5;
